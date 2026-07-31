@@ -15,6 +15,7 @@ import {
   ComboboxItem,
   ComboboxEmpty,
 } from "@/components/ui/combobox";
+import { GameSelect } from "@/components/game-select";
 import { SpriteImage } from "@/components/sprite-image";
 import { capitalize } from "@/lib/strings";
 import { ArrowLeft, Plus, Save, X } from "lucide-react";
@@ -152,8 +153,33 @@ function EditPokemon() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Species {p.speciesId !== Number(speciesId) && <span className="text-amber-400">(change = evolution!)</span>}</Label>
-              <Combobox value={speciesId} onValueChange={(val) => setSpeciesId(val ?? "")}>
-                <ComboboxInput placeholder="Search by name or dex number..." value={speciesSearch} onChange={(e) => setSpeciesSearch(e.target.value)} showClear />
+              <Combobox
+                value={speciesId}
+                onValueChange={(val) => {
+                  const id = val ?? "";
+                  if (id && !displaySpecies.some((s: any) => String(s.id) === id)) return;
+                  setSpeciesId(id);
+                  const name = displaySpecies.find((s: any) => String(s.id) === id);
+                  setSpeciesSearch(name ? capitalize(name.name) : "");
+                }}
+              >
+                <ComboboxInput
+                  placeholder="Search by name or dex number..."
+                  value={speciesSearch}
+                  onChange={(e) => setSpeciesSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const first = displaySpecies[0];
+                      if (first) {
+                        const id = String(first.id);
+                        setSpeciesId(id);
+                        setSpeciesSearch(capitalize(first.name));
+                      }
+                    }
+                  }}
+                  showClear
+                />
                 <ComboboxContent><ComboboxList>
                   {displaySpecies.map((s: any) => (<ComboboxItem key={s.id} value={String(s.id)}>#{s.nationalDexNumber} {capitalize(s.name)}</ComboboxItem>))}
                   {displaySpecies.length === 0 && <ComboboxEmpty>{speciesSearch.trim() ? "No species match" : "Type to search"}</ComboboxEmpty>}
@@ -173,7 +199,7 @@ function EditPokemon() {
         <CardHeader><CardTitle>Location</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2"><Label>Current Game</Label><Select value={location} onValueChange={(v) => { setLocation(v); if (v !== "home") { setBoxId(""); setSlot(""); } }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="home">Pokémon HOME</SelectItem><SelectItem value="scarlet">Scarlet</SelectItem><SelectItem value="violet">Violet</SelectItem><SelectItem value="sword">Sword</SelectItem><SelectItem value="shield">Shield</SelectItem><SelectItem value="legends-arceus">Legends: Arceus</SelectItem><SelectItem value="brilliant-diamond">Brilliant Diamond</SelectItem><SelectItem value="shining-pearl">Shining Pearl</SelectItem><SelectItem value="pokemon-go">Pokémon GO</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
+            <div className="space-y-2"><Label>Current Game</Label><GameSelect value={location} onValueChange={(v) => { setLocation(v); if (v !== "home") { setBoxId(""); setSlot(""); } }} /></div>
             <div className="space-y-2"><Label>Favorite</Label><Select value={isFavorite ? "true" : "false"} onValueChange={(v) => setIsFavorite(v === "true")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="false">No</SelectItem><SelectItem value="true">★ Favorite</SelectItem></SelectContent></Select></div>
           </div>
           {location === "home" && (<div className="grid grid-cols-2 gap-4 rounded-md border bg-secondary/30 p-3"><div className="space-y-2"><Label>Box</Label><Select value={boxId} onValueChange={setBoxId}><SelectTrigger><SelectValue placeholder="Select box" /></SelectTrigger><SelectContent>{userBoxes?.map((b: any) => <SelectItem key={b.id} value={b.id}>{b.name} ({b.pokemonCount}/30)</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Slot (1-30)</Label><Input type="number" min={1} max={30} value={slot} onChange={(e) => setSlot(e.target.value)} /></div></div>)}

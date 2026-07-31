@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { GameSelect } from "@/components/game-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trash2, Plus } from "lucide-react";
 import { useState } from "react";
@@ -22,7 +23,7 @@ function OTPage() {
   const [otName, setOtName] = useState("");
   const [trainerId, setTrainerId] = useState("");
   const [secretId, setSecretId] = useState("");
-  const [gameId, setGameId] = useState("");
+  const [gameCode, setGameCode] = useState("");
 
   const { data: ots } = useQuery({
     queryKey: ["ots"],
@@ -34,10 +35,13 @@ function OTPage() {
     staleTime: 5 * 60_000,
   });
 
+  const getGameId = (code: string) =>
+    bootstrap?.games.find((g) => g.code === code)?.id;
+
   const createMut = useMutation({
     mutationFn: (body: { gameId: number; name: string; trainerId: number; secretId?: number | null }) =>
       api("/api/ots", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["ots"] }); setOtName(""); setTrainerId(""); setSecretId(""); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["ots"] }); setOtName(""); setTrainerId(""); setSecretId(""); setGameCode(""); },
   });
 
   const deleteMut = useMutation({
@@ -53,16 +57,16 @@ function OTPage() {
         <CardHeader><CardTitle>Add OT</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <Select value={gameId} onValueChange={setGameId}>
-              <SelectTrigger><SelectValue placeholder="Select game" /></SelectTrigger>
-              <SelectContent>
-                {bootstrap?.games.map((g) => <SelectItem key={g.id} value={String(g.id)}>{g.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <GameSelect value={gameCode} onValueChange={setGameCode} placeholder="Select game" includeSpecial={false} />
             <Input placeholder="OT Name" value={otName} onChange={(e) => setOtName(e.target.value)} />
             <Input placeholder="Trainer ID" type="number" value={trainerId} onChange={(e) => setTrainerId(e.target.value)} />
             <Input placeholder="Secret ID (optional)" type="number" value={secretId} onChange={(e) => setSecretId(e.target.value)} />
-            <Button onClick={() => createMut.mutate({ gameId: Number(gameId), name: otName, trainerId: Number(trainerId), secretId: secretId ? Number(secretId) : undefined })} disabled={!gameId || !otName || !trainerId}>
+            <Button
+              onClick={() => {
+                const id = getGameId(gameCode);
+                if (id) createMut.mutate({ gameId: id, name: otName, trainerId: Number(trainerId), secretId: secretId ? Number(secretId) : undefined });
+              }}
+              disabled={!gameCode || !otName || !trainerId}>
               <Plus className="h-4 w-4" />Add
             </Button>
           </div>

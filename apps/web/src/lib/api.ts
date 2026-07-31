@@ -62,11 +62,15 @@ export async function api<T = unknown>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    const issues: unknown[] = body?.issues ?? [];
     const err: ApiError = {
       status: res.status,
       error: body?.error ?? "ERROR",
-      message: body?.message ?? res.statusText,
-      issues: body?.issues,
+      message:
+        issues.length > 0
+          ? String((issues[0] as { message?: string }).message ?? body?.message ?? res.statusText)
+          : (body?.message ?? res.statusText),
+      issues,
     };
     throw err;
   }

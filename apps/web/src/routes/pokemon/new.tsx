@@ -6,16 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  Combobox,
-  ComboboxInput,
-  ComboboxContent,
-  ComboboxList,
-  ComboboxItem,
-  ComboboxEmpty,
-} from "@/components/ui/combobox";
+import { ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, Combobox } from "@/components/ui/combobox";
+import { GameSelect } from "@/components/game-select";
 import { capitalize } from "@/lib/strings";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 function useSpeciesSearch(query: string) {
   const q = query.trim();
@@ -59,6 +53,11 @@ function NewPokemon() {
     ? (species?.data ?? [])
     : (defaultSpecies?.data ?? []);
 
+  const validSpeciesIds = useMemo(
+    () => new Set(displaySpecies.map((s) => String(s.id))),
+    [displaySpecies],
+  );
+
   const { data: boxes } = useQuery({
     queryKey: ["boxes"],
     queryFn: () => api<any[]>("/api/boxes"),
@@ -89,11 +88,31 @@ function NewPokemon() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Species</Label>
-              <Combobox value={speciesId} onValueChange={(val) => setSpeciesId(val ?? "")}>
+              <Combobox
+                value={speciesId}
+                onValueChange={(val) => {
+                  const id = val ?? "";
+                  if (id && !validSpeciesIds.has(id)) return;
+                  setSpeciesId(id);
+                  const name = displaySpecies.find((s) => String(s.id) === id);
+                  setSpeciesSearch(name ? capitalize(name.name) : "");
+                }}
+              >
                 <ComboboxInput
                   placeholder="Search by name or dex number..."
                   value={speciesSearch}
                   onChange={(e) => setSpeciesSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const first = displaySpecies[0];
+                      if (first) {
+                        const id = String(first.id);
+                        setSpeciesId(id);
+                        setSpeciesSearch(capitalize(first.name));
+                      }
+                    }
+                  }}
                   showClear
                 />
                 <ComboboxContent className="w-full">
@@ -119,18 +138,7 @@ function NewPokemon() {
               </div>
               <div className="space-y-2">
                 <Label>Location</Label>
-                <Select value={location} onValueChange={setLocation}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="home">HOME</SelectItem>
-                    <SelectItem value="scarlet">Scarlet</SelectItem>
-                    <SelectItem value="violet">Violet</SelectItem>
-                    <SelectItem value="sword">Sword</SelectItem>
-                    <SelectItem value="shield">Shield</SelectItem>
-                    <SelectItem value="pokemon-go">Pokémon GO</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+                <GameSelect value={location} onValueChange={setLocation} />
               </div>
             </div>
             {location === "home" && (
