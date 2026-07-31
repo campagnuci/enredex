@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, Combobox } from "@/components/ui/combobox";
 import { GameSelect } from "@/components/game-select";
+import { BoxSelect } from "@/components/box-select";
 import { capitalize } from "@/lib/strings";
 import { useMemo, useState } from "react";
 
@@ -57,11 +57,6 @@ function NewPokemon() {
     () => new Set(displaySpecies.map((s) => String(s.id))),
     [displaySpecies],
   );
-
-  const { data: boxes } = useQuery({
-    queryKey: ["boxes"],
-    queryFn: () => api<any[]>("/api/boxes"),
-  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,12 +140,7 @@ function NewPokemon() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Box</Label>
-                  <Select value={boxId} onValueChange={setBoxId}>
-                    <SelectTrigger><SelectValue placeholder="Select box" /></SelectTrigger>
-                    <SelectContent>
-                      {boxes?.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <BoxSelect value={boxId} onValueChange={setBoxId} />
                 </div>
                 <div className="space-y-2">
                   <Label>Slot (1-30)</Label>

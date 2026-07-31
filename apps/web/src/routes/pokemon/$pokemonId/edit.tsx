@@ -16,6 +16,7 @@ import {
   ComboboxEmpty,
 } from "@/components/ui/combobox";
 import { GameSelect } from "@/components/game-select";
+import { BoxSelect } from "@/components/box-select";
 import { SpriteImage } from "@/components/sprite-image";
 import { capitalize } from "@/lib/strings";
 import { ArrowLeft, Plus, Save, X } from "lucide-react";
@@ -59,11 +60,6 @@ function EditPokemon() {
     queryFn: () => api<any[]>("/api/reference/moves?search=&limit=500"),
     staleTime: 5 * 60_000,
   });
-  const { data: userBoxes } = useQuery({
-    queryKey: ["boxes"],
-    queryFn: () => api<any[]>("/api/boxes"),
-  });
-
   const [speciesId, setSpeciesId] = useState<string>("");
   const [nickname, setNickname] = useState("");
   const [level, setLevel] = useState("1");
@@ -202,7 +198,7 @@ function EditPokemon() {
             <div className="space-y-2"><Label>Current Game</Label><GameSelect value={location} onValueChange={(v) => { setLocation(v); if (v !== "home") { setBoxId(""); setSlot(""); } }} /></div>
             <div className="space-y-2"><Label>Favorite</Label><Select value={isFavorite ? "true" : "false"} onValueChange={(v) => setIsFavorite(v === "true")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="false">No</SelectItem><SelectItem value="true">★ Favorite</SelectItem></SelectContent></Select></div>
           </div>
-          {location === "home" && (<div className="grid grid-cols-2 gap-4 rounded-md border bg-secondary/30 p-3"><div className="space-y-2"><Label>Box</Label><Select value={boxId} onValueChange={setBoxId}><SelectTrigger><SelectValue placeholder="Select box" /></SelectTrigger><SelectContent>{userBoxes?.map((b: any) => <SelectItem key={b.id} value={b.id}>{b.name} ({b.pokemonCount}/30)</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Slot (1-30)</Label><Input type="number" min={1} max={30} value={slot} onChange={(e) => setSlot(e.target.value)} /></div></div>)}
+          {location === "home" && (<div className="grid grid-cols-2 gap-4 rounded-md border bg-secondary/30 p-3"><div className="space-y-2"><Label>Box</Label><BoxSelect value={boxId} onValueChange={setBoxId} /></div><div className="space-y-2"><Label>Slot (1-30)</Label><Input type="number" min={1} max={30} value={slot} onChange={(e) => setSlot(e.target.value)} /></div></div>)}
         </CardContent>
       </Card>
       <Card>

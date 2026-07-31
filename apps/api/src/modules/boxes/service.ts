@@ -1,5 +1,5 @@
 import { boxes, forms, pokemon, species, users, type Box } from "@enredex/database";
-import { and, asc, count, eq, max } from "drizzle-orm";
+import { and, asc, count, eq, ilike, max, type SQL } from "drizzle-orm";
 import { errors } from "../../lib/errors.js";
 import type { DbOrTx } from "../../lib/db.js";
 
@@ -46,7 +46,10 @@ export async function nextBoxPosition(
   return (row?.value ?? 0) + 1;
 }
 
-export async function listBoxes(db: DbOrTx, userId: string) {
+export async function listBoxes(db: DbOrTx, userId: string, search?: string) {
+  const conditions: SQL[] = [eq(boxes.userId, userId)];
+  if (search) conditions.push(ilike(boxes.name, `%${search}%`));
+
   return db
     .select({
       id: boxes.id,
@@ -58,7 +61,7 @@ export async function listBoxes(db: DbOrTx, userId: string) {
     })
     .from(boxes)
     .leftJoin(pokemon, eq(pokemon.boxId, boxes.id))
-    .where(eq(boxes.userId, userId))
+    .where(and(...conditions))
     .groupBy(boxes.id)
     .orderBy(asc(boxes.position));
 }

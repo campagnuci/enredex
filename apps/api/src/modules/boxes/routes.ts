@@ -25,12 +25,19 @@ const updateBoxBodySchema = z.object({
 });
 
 const idParamSchema = z.object({ id: z.uuid() });
+const listQuerySchema = z.object({
+  search: z.string().trim().max(100).optional(),
+});
 
 export async function boxRoutes(app: FastifyInstance) {
   app.addHook("preHandler", app.authenticate);
   const r = app.withTypeProvider<ZodTypeProvider>();
 
-  r.get("/", async (request) => listBoxes(app.db, request.user.sub));
+  r.get(
+    "/",
+    { schema: { querystring: listQuerySchema } },
+    async (request) => listBoxes(app.db, request.user.sub, request.query.search),
+  );
 
   r.post(
     "/",
