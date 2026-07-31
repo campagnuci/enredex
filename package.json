@@ -1,0 +1,25 @@
+{
+  "name": "enredex",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.1.0",
+  "scripts": {
+    "dev": "pnpm dev:api & pnpm dev:web",
+    "dev:api": "pnpm --filter @enredex/api dev",
+    "dev:web": "pnpm --filter @enredex/web dev",
+    "build": "pnpm --filter @enredex/web build",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:generate": "pnpm --filter @enredex/database db:generate",
+    "db:migrate": "pnpm --filter @enredex/database db:migrate",
+    "db:studio": "pnpm --filter @enredex/database db:studio",
+    "sync": "pnpm --filter @enredex/pokemon-data sync",
+    "seed": "tsx scripts/seed.ts",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "@enredex/database": "workspace:*",
+    "argon2": "^0.45.1",
+    "tsx": "^4.23.1"
+  }
+}

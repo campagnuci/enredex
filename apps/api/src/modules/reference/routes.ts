@@ -1,0 +1,175 @@
+import {
+  abilities,
+  balls,
+  forms,
+  games,
+  generations,
+  items,
+  moves,
+  natures,
+  regions,
+  species,
+  types,
+} from "@enredex/database";
+import { and, asc, count, eq, ilike, or, sql, type SQL } from "drizzle-orm";
+import type { FastifyInstance } from "fastify";
+import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { z } from "zod";
+import { errors } from "../../lib/errors.js";
+import { paginationQuery } from "../../lib/zod-helpers.js";
+
+const searchQuerySchema = z.object({
+  search: z.string().trim().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+const speciesQuerySchema = z.object({
+  search: z.string().trim().max(100).optional(),
+  generationId: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(3000).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const movesQuerySchema = z.object({
+  search: z.string().trim().max(100).optional(),
+  typeId: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+const idParamSchema = z.object({ id: z.coerce.number().int().positive() });
+
+/**
+ * Read-only reference data for dropdowns/autocompletes.
+ * Data itself is maintained by the pokemon-data import pipeline.
+ */
+export async function referenceRoutes(app: FastifyInstance) {
+  app.addHook("preHandler", app.authenticate);
+  const r = app.withTypeProvider<ZodTypeProvider>();
+
+  // Small lookup tables in a single call
+  r.get("/bootstrap", async () => {
+    const db = app.db;
+    const [gens, regs, gms, tps, nts, blls] = await Promise.all([
+      db.select().from(generations).orderBy(asc(generations.number)),
+      db.select().from(regions).orderBy(asc(regions.name)),
+      db
+        .select({
+          id: games.id,
+          code: games.code,
+          name: games.name,
+          generationId: games.generationId,
+        })
+        .from(games)
+        .leftJoin(generations, eq(games.generationId, generations.id))
+        .orderBy(asc(generations.number), asc(games.id)),
+      db.select().from(types).orderBy(asc(types.name)),
+      db.select().from(natures).orderBy(asc(natures.name)),
+      db.select().from(balls).orderBy(asc(balls.name)),
+    ]);
+    return {
+      generations: gens,
+      regions: regs,
+      games: gms,
+      types: tps,
+      natures: nts,
+      balls: blls,
+    };
+  });
+
+  r.get(
+    "/species",
+    { schema: { querystring: speciesQuerySchema } },
+    async (request) => {
+      const { search, generationId, limit, offset } = request.query;
+      const conditions: SQL[] = [];
+      if (search) {
+        conditions.push(
+          or(
+            ilike(species.name, `%${search}%`),
+            sql`CAST(${species.nationalDexNumber} AS text) LIKE ${search + "%"}`,
+          ) as SQL,
+        );
+      }
+      if (generationId) conditions.push(eq(species.generationId, generationId));
+
+      const where = conditions.length ? and(...conditions) : undefined;
+      const [data, totalRow] = await Promise.all([
+        app.db
+          .select({
+            id: species.id,
+            name: species.name,
+            nationalDexNumber: species.nationalDexNumber,
+            pokeapiId: species.pokeapiId,
+            generationId: species.generationId,
+            isLegendary: species.isLegendary,
+            isMythical: species.isMythical,
+          })
+          .from(species)
+          .where(where)
+          .orderBy(asc(species.nationalDexNumber))
+          .limit(limit)
+          .offset(offset),
+        app.db.select({ value: count() }).from(species).where(where),
+      ]);
+      return { data, total: totalRow[0]?.value ?? 0, limit, offset };
+    },
+  );
+
+  r.get(
+    "/species/:id",
+    { schema: { params: idParamSchema } },
+    async (request) => {
+      const row = await app.db.query.species.findFirst({
+        where: (s, { eq }) => eq(s.id, request.params.id),
+        with: { forms: { orderBy: (f, { asc }) => asc(f.sortOrder) } },
+      });
+      if (!row) throw errors.notFound("Species not found");
+      return row;
+    },
+  );
+
+  r.get(
+    "/abilities",
+    { schema: { querystring: searchQuerySchema } },
+    async (request) => {
+      const { search, limit } = request.query;
+      return app.db
+        .select()
+        .from(abilities)
+        .where(search ? ilike(abilities.name, `%${search}%`) : undefined)
+        .orderBy(asc(abilities.name))
+        .limit(limit);
+    },
+  );
+
+  r.get(
+    "/items",
+    { schema: { querystring: searchQuerySchema } },
+    async (request) => {
+      const { search, limit } = request.query;
+      return app.db
+        .select()
+        .from(items)
+        .where(search ? ilike(items.name, `%${search}%`) : undefined)
+        .orderBy(asc(items.name))
+        .limit(limit);
+    },
+  );
+
+  r.get(
+    "/moves",
+    { schema: { querystring: movesQuerySchema } },
+    async (request) => {
+      const { search, typeId, limit } = request.query;
+      const conditions: SQL[] = [];
+      if (search) conditions.push(ilike(moves.name, `%${search}%`));
+      if (typeId) conditions.push(eq(moves.typeId, typeId));
+      return app.db
+        .select()
+        .from(moves)
+        .where(conditions.length ? and(...conditions) : undefined)
+        .orderBy(asc(moves.name))
+        .limit(limit);
+    },
+  );
+}

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+.turbo/
+*.log
+.DS_Store
+
+# Environment
+.env
+.env.*
+!.env.example
+!.env.prod.example
+
+# drizzle-kit
+drizzle/meta/_journal.json.bak
