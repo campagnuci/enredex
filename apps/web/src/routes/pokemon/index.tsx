@@ -37,7 +37,7 @@ function PokemonList() {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="h-full overflow-auto p-6 max-w-6xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Pokémon</h1>
         <Link to="/pokemon/new">

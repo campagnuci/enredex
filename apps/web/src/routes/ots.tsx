@@ -50,7 +50,7 @@ function OTPage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="h-full overflow-auto p-6 max-w-6xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold">Original Trainers</h1>
 
       <Card>

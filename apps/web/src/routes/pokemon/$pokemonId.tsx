@@ -1,4 +1,4 @@
-import { createFileRoute, Link, Outlet, useMatches } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useMatches, useRouter } from "@tanstack/react-router";
 import { api } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -8,17 +8,39 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SpriteImage } from "@/components/sprite-image";
 import { capitalize } from "@/lib/strings";
-import { ArrowLeft, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, Mars, Minus, Pencil, Sparkles, Star, Trash2, Venus } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 
 function PokemonDetail() {
   const { pokemonId } = Route.useParams() as { pokemonId: string };
   const navigate = useNavigate();
+  const router = useRouter();
   const matches = useMatches();
+
+  const goBack = () => {
+    if (window.history.length > 1) {
+      router.history.back();
+    } else {
+      navigate({ to: "/pokemon" });
+    }
+  };
+  const qc = useQueryClient();
 
   const { data: p, isLoading } = useQuery({
     queryKey: ["pokemon", pokemonId],
     queryFn: () => api<any>(`/api/pokemon/${pokemonId}`),
+  });
+
+  const toggleFavorite = useMutation({
+    mutationFn: (val: boolean) =>
+      api(`/api/pokemon/${pokemonId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ isFavorite: val }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["pokemon"] }),
+  });
+  const toggleShiny = useMutation({
+    mutationFn: (val: boolean) =>
+      api(`/api/pokemon/${pokemonId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ isShiny: val }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["pokemon"] }),
   });
 
   // If a child route (edit) is active, yield to it
@@ -30,16 +52,30 @@ function PokemonDetail() {
   const handleDelete = async () => {
     if (!confirm("Delete this Pokémon?")) return;
     await api(`/api/pokemon/${pokemonId}`, { method: "DELETE" });
-    navigate({ to: "/pokemon" });
+    goBack();
   };
 
   return (
-    <div className="space-y-6">
+    <div className="h-full overflow-auto p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
-        <Link to="/pokemon">
-          <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4" />Back</Button>
-        </Link>
+          <Button variant="ghost" size="sm" onClick={goBack}><ArrowLeft className="h-4 w-4" />Back</Button>
         <div className="flex items-center gap-2">
+          <Button
+            variant={p.isShiny ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => toggleShiny.mutate(!p.isShiny)}
+            title={p.isShiny ? "Not shiny" : "Shiny"}
+          >
+            <Sparkles className={`h-4 w-4 ${p.isShiny ? "text-purple-400" : ""}`} />
+          </Button>
+          <Button
+            variant={p.isFavorite ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => toggleFavorite.mutate(!p.isFavorite)}
+            title={p.isFavorite ? "Remove favorite" : "Add favorite"}
+          >
+            <Star className={`h-4 w-4 ${p.isFavorite ? "fill-amber-400 text-amber-400" : ""}`} />
+          </Button>
           <Link to="/pokemon/$pokemonId/edit" params={{ pokemonId }}>
             <Button variant="outline" size="sm"><Pencil className="h-4 w-4" />Edit</Button>
           </Link>
@@ -72,7 +108,7 @@ function PokemonDetail() {
               )}
               {p.form && <span> · {p.form.name}</span>}
               {" · "}Lv.{p.level}
-              {" · "}{p.gender}
+              {" · "}{p.gender === "female" ? <Venus className="inline h-4 w-4 text-pink-400" /> : p.gender === "male" ? <Mars className="inline h-4 w-4 text-blue-400" /> : <Minus className="inline h-4 w-4 text-muted-foreground" />}
             </p>
           </div>
 
@@ -101,7 +137,7 @@ function PokemonDetail() {
                 <h3 className="mb-2 font-medium">Moves</h3>
                 <div className="flex flex-wrap gap-2">
                   {p.moves.map((m: any) => (
-                    <Badge key={m.slot} variant="outline">{m.move?.name ?? `Slot ${m.slot}`}</Badge>
+                    <Badge key={m.slot} variant="outline">{capitalize(m.move?.name ?? `Slot ${m.slot}`)}</Badge>
                   ))}
                 </div>
               </div>

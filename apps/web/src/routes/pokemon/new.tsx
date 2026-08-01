@@ -5,30 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, Combobox } from "@/components/ui/combobox";
 import { GameSelect } from "@/components/game-select";
 import { BoxSelect } from "@/components/box-select";
+import { SearchableCombobox } from "@/components/searchable-combobox";
 import { capitalize } from "@/lib/strings";
 import { useMemo, useState } from "react";
-
-function useSpeciesSearch(query: string) {
-  const q = query.trim();
-  return useQuery({
-    queryKey: ["reference", "species", q],
-    queryFn: () =>
-      api<{ data: { id: number; name: string; nationalDexNumber: number }[] }>(
-        `/api/reference/species?search=${encodeURIComponent(q)}&limit=100`,
-      ),
-    staleTime: 60_000,
-    enabled: q.length > 0,
-    placeholderData: (prev) => prev,
-  });
-}
 
 function NewPokemon() {
   const navigate = useNavigate();
   const [speciesId, setSpeciesId] = useState("");
-  const [speciesSearch, setSpeciesSearch] = useState("");
+  const [formId, setFormId] = useState("");
   const [level, setLevel] = useState("1");
   const [location, setLocation] = useState("home");
   const [boxId, setBoxId] = useState("");
@@ -36,27 +22,35 @@ function NewPokemon() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Initial load (no search) + search results
-  const { data: species } = useSpeciesSearch(speciesSearch);
-
-  // Load a default set for the initial empty state
   const { data: defaultSpecies } = useQuery({
     queryKey: ["reference", "species", "default"],
-    queryFn: () =>
-      api<{ data: { id: number; name: string; nationalDexNumber: number }[] }>(
-        "/api/reference/species?limit=100",
-      ),
+    queryFn: () => api<{ data: { id: number; name: string; nationalDexNumber: number }[] }>("/api/reference/species?limit=200"),
     staleTime: 5 * 60_000,
   });
 
-  const displaySpecies = speciesSearch.trim()
-    ? (species?.data ?? [])
-    : (defaultSpecies?.data ?? []);
-
-  const validSpeciesIds = useMemo(
-    () => new Set(displaySpecies.map((s) => String(s.id))),
-    [displaySpecies],
+  const speciesOptions = useMemo(
+    () =>
+      (defaultSpecies?.data ?? []).map((s) => ({
+        value: String(s.id),
+        label: `#${s.nationalDexNumber} ${capitalize(s.name)}`,
+      })),
+    [defaultSpecies],
   );
+
+  // Fetch forms when a species is selected
+  const { data: speciesForms } = useQuery({
+    queryKey: ["reference", "forms", speciesId],
+    queryFn: () => api<{ forms: { id: number; name: string; formType: string; isDefault: boolean }[] }>(`/api/reference/species/${speciesId}`),
+    enabled: !!speciesId,
+    staleTime: 5 * 60_000,
+  });
+
+  const formOptions = useMemo(() => {
+    if (!speciesForms?.forms?.length) return [];
+    return speciesForms.forms
+      .filter((f) => !f.isDefault)
+      .map((f) => ({ value: String(f.id), label: capitalize(f.name) }));
+  }, [speciesForms]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,9 +58,10 @@ function NewPokemon() {
     setLoading(true);
     try {
       const body: any = { speciesId: Number(speciesId), level: Number(level), location };
+      if (formId) body.formId = Number(formId);
       if (location === "home") Object.assign(body, { homePlan: "free", boxId, slot: Number(slot) });
-      await api("/api/pokemon", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      navigate({ to: "/pokemon" });
+      const created: { id: string } = await api("/api/pokemon", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      navigate({ to: "/pokemon/$pokemonId/edit", params: { pokemonId: created.id } });
     } catch (err: any) {
       setError(err?.message ?? "Failed to create");
     } finally {
@@ -75,7 +70,7 @@ function NewPokemon() {
   };
 
   return (
-    <div className="mx-auto max-w-lg space-y-4">
+    <div className="h-full overflow-auto p-6 max-w-6xl mx-auto mx-auto max-w-lg space-y-4">
       <h1 className="text-2xl font-bold">Add Pokémon</h1>
       <Card>
         <CardHeader><CardTitle>Basic Info</CardTitle></CardHeader>
@@ -83,49 +78,26 @@ function NewPokemon() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Species</Label>
-              <Combobox
+              <SearchableCombobox
                 value={speciesId}
-                onValueChange={(val) => {
-                  const id = val ?? "";
-                  if (id && !validSpeciesIds.has(id)) return;
-                  setSpeciesId(id);
-                  const name = displaySpecies.find((s) => String(s.id) === id);
-                  setSpeciesSearch(name ? capitalize(name.name) : "");
-                }}
-              >
-                <ComboboxInput
-                  placeholder="Search by name or dex number..."
-                  value={speciesSearch}
-                  onChange={(e) => setSpeciesSearch(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      const first = displaySpecies[0];
-                      if (first) {
-                        const id = String(first.id);
-                        setSpeciesId(id);
-                        setSpeciesSearch(capitalize(first.name));
-                      }
-                    }
-                  }}
-                  showClear
-                />
-                <ComboboxContent className="w-full">
-                  <ComboboxList>
-                    {displaySpecies.map((s) => (
-                      <ComboboxItem key={s.id} value={String(s.id)}>
-                        #{s.nationalDexNumber} {capitalize(s.name)}
-                      </ComboboxItem>
-                    ))}
-                    {displaySpecies.length === 0 && (
-                      <ComboboxEmpty>
-                        {speciesSearch.trim() ? "No species match" : "Type to search species"}
-                      </ComboboxEmpty>
-                    )}
-                  </ComboboxList>
-                </ComboboxContent>
-              </Combobox>
+                onValueChange={(v) => { setSpeciesId(v); setFormId(""); }}
+                options={speciesOptions}
+                placeholder="Search by name or dex number..."
+                emptyMessage="No species match"
+              />
             </div>
+            {formOptions.length > 0 && (
+              <div className="space-y-2">
+                <Label>Form</Label>
+                <SearchableCombobox
+                  value={formId}
+                  onValueChange={setFormId}
+                  options={formOptions}
+                  placeholder="Select form..."
+                  emptyMessage="No forms"
+                />
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Level</Label>

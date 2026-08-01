@@ -1,26 +1,19 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { api } from "@/lib/api";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  Combobox,
-  ComboboxInput,
-  ComboboxContent,
-  ComboboxList,
-  ComboboxItem,
-  ComboboxEmpty,
-} from "@/components/ui/combobox";
 import { GameSelect } from "@/components/game-select";
 import { BoxSelect } from "@/components/box-select";
+import { SearchableCombobox } from "@/components/searchable-combobox";
 import { SpriteImage } from "@/components/sprite-image";
 import { capitalize } from "@/lib/strings";
-import { ArrowLeft, Plus, Save, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowLeft, Mars, Minus, Save, Sparkles, Star, Venus, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 function useSpeciesSearch(query: string) {
   const q = query.trim();
@@ -46,21 +39,23 @@ function EditPokemon() {
     queryFn: () => api<any>(`/api/pokemon/${pokemonId}`),
   });
 
+  // --- Species combobox ---
   const [speciesSearch, setSpeciesSearch] = useState("");
   const { data: speciesResults } = useSpeciesSearch(speciesSearch);
   const { data: defaultSpecies } = useQuery({
     queryKey: ["reference", "species", "default"],
-    queryFn: () => api<{ data: { id: number; name: string; nationalDexNumber: number }[] }>("/api/reference/species?limit=100"),
+    queryFn: () => api<{ data: { id: number; name: string; nationalDexNumber: number }[] }>("/api/reference/species?limit=200"),
     staleTime: 5 * 60_000,
   });
   const displaySpecies = speciesSearch.trim() ? (speciesResults?.data ?? []) : (defaultSpecies?.data ?? []);
+  const speciesOptions = useMemo(
+    () => displaySpecies.map((s: any) => ({ value: String(s.id), label: `#${s.nationalDexNumber} ${capitalize(s.name)}` })),
+    [displaySpecies],
+  );
 
-  const { data: movesList } = useQuery({
-    queryKey: ["reference", "moves", "all"],
-    queryFn: () => api<any[]>("/api/reference/moves?search=&limit=500"),
-    staleTime: 5 * 60_000,
-  });
+  // --- Form state ---
   const [speciesId, setSpeciesId] = useState<string>("");
+  const [formId, setFormId] = useState<string>("");
   const [nickname, setNickname] = useState("");
   const [level, setLevel] = useState("1");
   const [gender, setGender] = useState("genderless");
@@ -72,7 +67,6 @@ function EditPokemon() {
   const [notes, setNotes] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
-  const [newMoveId, setNewMoveId] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -80,7 +74,9 @@ function EditPokemon() {
   useEffect(() => {
     if (!p) return;
     setSpeciesId(String(p.speciesId ?? ""));
-    setNickname(p.nickname ?? "");
+    setFormId(p.formId ? String(p.formId) : "");
+    setSpeciesSearch(capitalize(p.species?.name ?? ""));
+    setNickname(p.nickname ?? capitalize(p.species?.name ?? ""));
     setLevel(String(p.level ?? 1));
     setGender(p.gender ?? "genderless");
     setIsShiny(p.isShiny ?? false);
@@ -92,11 +88,70 @@ function EditPokemon() {
     setTags(p.tags ?? []);
   }, [p]);
 
-  const currentMoves = p?.moves ?? [];
+  // --- Learnset → moves ---
+  const { data: learnset } = useQuery({
+    queryKey: ["reference", "learnset", Number(speciesId)],
+    queryFn: () => api<{ moves: number[] }>(`/api/reference/species/${speciesId}/learnset`),
+    enabled: !!speciesId,
+    staleTime: 60_000,
+  });
+  const { data: allMoves } = useQuery({
+    queryKey: ["reference", "moves", "all"],
+    queryFn: () => api<any[]>("/api/reference/moves?limit=200"),
+    staleTime: 5 * 60_000,
+    enabled: !learnset?.moves?.length,
+  });
+  const { data: learnsetMoves } = useQuery({
+    queryKey: ["reference", "moves", "byId", learnset?.moves?.join(",") ?? ""],
+    queryFn: () => api<any[]>(`/api/reference/moves?ids=${learnset!.moves.join(",")}&limit=2000`),
+    staleTime: 5 * 60_000,
+    enabled: !!(learnset?.moves?.length),
+  });
 
+  const { data: speciesForms } = useQuery({
+    queryKey: ["reference", "forms", speciesId],
+    queryFn: () => api<{ forms: { id: number; name: string; formType: string; isDefault: boolean }[] }>(`/api/reference/species/${speciesId}`),
+    enabled: !!speciesId,
+    staleTime: 5 * 60_000,
+  });
+  const formOptions = useMemo(() => {
+    if (!speciesForms?.forms?.length) return [];
+    return speciesForms.forms
+      .filter((f) => !f.isDefault)
+      .map((f) => ({ value: String(f.id), label: capitalize(f.name) }));
+  }, [speciesForms]);
+  const availableMoves = learnsetMoves ?? (allMoves ?? []);
+
+  // --- Moves slots ---
+  const currentMoves: any[] = p?.moves ?? [];
+  const moveOptions = useMemo(
+    () => availableMoves.map((m: any) => ({ value: String(m.id), label: capitalize(m.name) })),
+    [availableMoves],
+  );
+
+  const setMove = async (s: number, moveId: number | null) => {
+    const others = currentMoves.filter((m: any) => m.slot !== s);
+    const updated = moveId
+      ? [...others, { moveId, slot: s, ppUps: 0 }].sort((a: any, b: any) => a.slot - b.slot)
+      : others.map((m: any, i: number) => ({ moveId: m.moveId, slot: i + 1, ppUps: m.ppUps }));
+    await api(`/api/pokemon/${pokemonId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ moves: updated }) });
+    qc.invalidateQueries({ queryKey: ["pokemon", pokemonId] });
+  };
+
+  const moveMap = new Map(currentMoves.map((m: any) => [m.slot, m]));
+
+  // --- Save helpers ---
+  const cycleGender = () => {
+    const order: Array<typeof gender> = ["male", "female", "genderless"];
+    const idx = order.indexOf(gender);
+    const next = order[(idx + 1) % order.length]!;
+    setGender(next);
+    doSave({ gender: next });
+  };
   const buildPatch = (overrides: Record<string, unknown> = {}) => {
-    const body: Record<string, unknown> = { ...overrides };
+    const body: Record<string, unknown> = {};
     if (speciesId) body.speciesId = Number(speciesId);
+    body.formId = formId ? Number(formId) : null;
     body.nickname = nickname || null;
     body.level = Number(level);
     body.gender = gender;
@@ -107,6 +162,7 @@ function EditPokemon() {
     body.tags = tags;
     if (location === "home") { body.homePlan = "free"; body.boxId = boxId || null; body.slot = slot ? Number(slot) : null; }
     else { body.boxId = null; body.slot = null; }
+    Object.assign(body, overrides);
     return body;
   };
 
@@ -120,17 +176,6 @@ function EditPokemon() {
     finally { setSaving(false); }
   };
 
-  const addMove = async () => {
-    if (!newMoveId || currentMoves.length >= 4) return;
-    const moves = [...currentMoves.map((m: any) => ({ moveId: m.moveId, slot: m.slot, ppUps: m.ppUps })), { moveId: Number(newMoveId), slot: currentMoves.length + 1, ppUps: 0 }];
-    await api(`/api/pokemon/${pokemonId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ moves }) });
-    qc.invalidateQueries({ queryKey: ["pokemon", pokemonId] }); setNewMoveId("");
-  };
-  const removeMove = async (s: number) => {
-    const moves = currentMoves.filter((m: any) => m.slot !== s).map((m: any, i: number) => ({ moveId: m.moveId, slot: i + 1, ppUps: m.ppUps }));
-    await api(`/api/pokemon/${pokemonId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ moves }) });
-    qc.invalidateQueries({ queryKey: ["pokemon", pokemonId] });
-  };
   const removeTag = (t: string) => { const next = tags.filter(x => x !== t); setTags(next); doSave({ tags: next }); };
   const addTag = () => { const v = tagInput.trim(); if (!v || tags.includes(v)) return; const next = [...tags, v]; setTags(next); setTagInput(""); doSave({ tags: next }); };
 
@@ -138,76 +183,92 @@ function EditPokemon() {
   if (!p) return <div className="py-12 text-center text-muted-foreground">Not found</div>;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="h-full overflow-auto p-6 max-w-6xl mx-auto mx-auto max-w-2xl space-y-6">
       <div className="flex items-center justify-between">
         <Link to="/pokemon/$pokemonId" params={{ pokemonId }}><Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4" />Back</Button></Link>
         <div className="flex items-center gap-2">{p.iconUrl && <SpriteImage src={p.iconUrl} alt="" className="h-8 w-8 object-contain" />}<h1 className="text-xl font-bold">{p.nickname ?? capitalize(p.species?.name ?? "")}</h1></div>
       </div>
+
+      {/* Identity */}
       <Card>
-        <CardHeader><CardTitle>Identity</CardTitle></CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Identity</CardTitle>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" onClick={cycleGender} title={gender}>
+              {gender === "female" ? <Venus className="h-5 w-5 text-pink-400" /> : gender === "male" ? <Mars className="h-5 w-5 text-blue-400" /> : <Minus className="h-5 w-5 text-muted-foreground" />}
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => { setIsShiny(!isShiny); doSave({ isShiny: !isShiny }); }} title={isShiny ? "Not shiny" : "Shiny"}>
+              <Sparkles className={`h-5 w-5 ${isShiny ? "text-purple-400" : ""}`} />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => { setIsFavorite(!isFavorite); doSave({ isFavorite: !isFavorite }); }} title={isFavorite ? "Remove favorite" : "Add favorite"}>
+              <Star className={`h-5 w-5 ${isFavorite ? "fill-amber-400 text-amber-400" : ""}`} />
+            </Button>
+          </div>
+        </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Species {p.speciesId !== Number(speciesId) && <span className="text-amber-400">(change = evolution!)</span>}</Label>
-              <Combobox
+              <SearchableCombobox
                 value={speciesId}
-                onValueChange={(val) => {
-                  const id = val ?? "";
-                  if (id && !displaySpecies.some((s: any) => String(s.id) === id)) return;
-                  setSpeciesId(id);
-                  const name = displaySpecies.find((s: any) => String(s.id) === id);
-                  setSpeciesSearch(name ? capitalize(name.name) : "");
-                }}
-              >
-                <ComboboxInput
-                  placeholder="Search by name or dex number..."
-                  value={speciesSearch}
-                  onChange={(e) => setSpeciesSearch(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      const first = displaySpecies[0];
-                      if (first) {
-                        const id = String(first.id);
-                        setSpeciesId(id);
-                        setSpeciesSearch(capitalize(first.name));
-                      }
-                    }
-                  }}
-                  showClear
-                />
-                <ComboboxContent><ComboboxList>
-                  {displaySpecies.map((s: any) => (<ComboboxItem key={s.id} value={String(s.id)}>#{s.nationalDexNumber} {capitalize(s.name)}</ComboboxItem>))}
-                  {displaySpecies.length === 0 && <ComboboxEmpty>{speciesSearch.trim() ? "No species match" : "Type to search"}</ComboboxEmpty>}
-                </ComboboxList></ComboboxContent>
-              </Combobox>
+                onValueChange={(v) => { setSpeciesId(v); setFormId(""); }}
+                options={speciesOptions}
+                placeholder="Search by name or dex number..."
+                emptyMessage="No species match"
+              />
             </div>
             <div className="space-y-2"><Label>Nickname</Label><Input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder={capitalize(p.species?.name ?? "")} /></div>
           </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2"><Label>Level</Label><Input type="number" min={1} max={100} value={level} onChange={(e) => setLevel(e.target.value)} /></div>
-            <div className="space-y-2"><Label>Gender</Label><Select value={gender} onValueChange={setGender}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="male">Male</SelectItem><SelectItem value="female">Female</SelectItem><SelectItem value="genderless">Genderless</SelectItem></SelectContent></Select></div>
-            <div className="space-y-2"><Label>Shiny</Label><Select value={isShiny ? "true" : "false"} onValueChange={(v) => setIsShiny(v === "true")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="false">No</SelectItem><SelectItem value="true">Yes</SelectItem></SelectContent></Select></div>
-          </div>
+          {formOptions.length > 0 && (
+            <div className="space-y-2">
+              <Label>Form</Label>
+              <SearchableCombobox
+                value={formId}
+                onValueChange={setFormId}
+                options={formOptions}
+                placeholder="Select form..."
+                emptyMessage="No forms"
+              />
+            </div>
+          )}
+          <div className="space-y-2"><Label>Level</Label><Input type="number" min={1} max={100} value={level} onChange={(e) => setLevel(e.target.value)} /></div>
         </CardContent>
       </Card>
+
+      {/* Location */}
       <Card>
         <CardHeader><CardTitle>Location</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2"><Label>Current Game</Label><GameSelect value={location} onValueChange={(v) => { setLocation(v); if (v !== "home") { setBoxId(""); setSlot(""); } }} /></div>
-            <div className="space-y-2"><Label>Favorite</Label><Select value={isFavorite ? "true" : "false"} onValueChange={(v) => setIsFavorite(v === "true")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="false">No</SelectItem><SelectItem value="true">★ Favorite</SelectItem></SelectContent></Select></div>
-          </div>
+          <div className="space-y-2"><Label>Current Game</Label><GameSelect value={location} onValueChange={(v) => { setLocation(v); if (v !== "home") { setBoxId(""); setSlot(""); } }} /></div>
           {location === "home" && (<div className="grid grid-cols-2 gap-4 rounded-md border bg-secondary/30 p-3"><div className="space-y-2"><Label>Box</Label><BoxSelect value={boxId} onValueChange={setBoxId} /></div><div className="space-y-2"><Label>Slot (1-30)</Label><Input type="number" min={1} max={30} value={slot} onChange={(e) => setSlot(e.target.value)} /></div></div>)}
         </CardContent>
       </Card>
+
+      {/* Moves */}
       <Card>
         <CardHeader><CardTitle>Moves</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap gap-2">{currentMoves.map((m: any) => (<Badge key={m.slot} variant="outline" className="gap-1 pr-1">{m.move?.name ?? `Slot ${m.slot}`}<button type="button" onClick={() => removeMove(m.slot)} className="ml-1 rounded-full hover:bg-muted"><X className="h-3 w-3" /></button></Badge>))}{currentMoves.length === 0 && <p className="text-sm text-muted-foreground">No moves</p>}</div>
-          {currentMoves.length < 4 && (<div className="flex gap-2"><Select value={newMoveId} onValueChange={setNewMoveId}><SelectTrigger className="flex-1"><SelectValue placeholder="Add a move..." /></SelectTrigger><SelectContent className="max-h-48">{movesList?.map((m: any) => <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>)}</SelectContent></Select><Button type="button" variant="outline" size="icon" onClick={addMove} disabled={!newMoveId}><Plus className="h-4 w-4" /></Button></div>)}
+        <CardContent className="space-y-2">
+          {[0, 1, 2, 3].map((idx) => {
+            const slot = idx + 1;
+            const move = moveMap.get(slot);
+            return (
+              <div key={slot} className="flex items-center gap-2">
+                <span className="w-12 text-xs text-muted-foreground">Slot {slot}</span>
+                <div className="flex-1">
+                  <SearchableCombobox
+                    value={move ? String(move.moveId) : ""}
+                    onValueChange={(v) => setMove(slot, v ? Number(v) : null)}
+                    options={moveOptions}
+                    placeholder={move ? capitalize(move.move?.name ?? "") : "Search moves..."}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
+
+      {/* Tags & Notes */}
       <Card>
         <CardHeader><CardTitle>Tags & Notes</CardTitle></CardHeader>
         <CardContent className="space-y-3">
@@ -216,6 +277,7 @@ function EditPokemon() {
           <div className="space-y-2"><Label>Notes</Label><Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Any notes..." /></div>
         </CardContent>
       </Card>
+
       {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="flex items-center gap-2">
         <Button onClick={() => doSave()} disabled={saving}><Save className="mr-2 h-4 w-4" />{saved ? "Saved!" : saving ? "Saving..." : "Save Changes"}</Button>

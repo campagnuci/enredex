@@ -42,7 +42,7 @@ function SettingsPage() {
           <CardTitle>Profile</CardTitle>
           <CardDescription>Update your display name and plan</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="h-full overflow-auto p-6 max-w-6xl mx-auto space-y-4">
           <div className="space-y-2">
             <Label>Name</Label>
             <Input value={name} onChange={(e) => { setName(e.target.value); setSaved(false); }} />

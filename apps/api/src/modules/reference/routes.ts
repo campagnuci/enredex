@@ -11,7 +11,7 @@ import {
   species,
   types,
 } from "@enredex/database";
-import { and, asc, count, eq, ilike, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -33,7 +33,8 @@ const speciesQuerySchema = z.object({
 const movesQuerySchema = z.object({
   search: z.string().trim().max(100).optional(),
   typeId: z.coerce.number().int().positive().optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(50),
+  ids: z.string().trim().optional(),
+  limit: z.coerce.number().int().min(1).max(2000).default(50),
 });
 
 const idParamSchema = z.object({ id: z.coerce.number().int().positive() });
@@ -160,16 +161,62 @@ export async function referenceRoutes(app: FastifyInstance) {
     "/moves",
     { schema: { querystring: movesQuerySchema } },
     async (request) => {
-      const { search, typeId, limit } = request.query;
+      const { search, typeId, limit, ids } = request.query;
       const conditions: SQL[] = [];
       if (search) conditions.push(ilike(moves.name, `%${search}%`));
       if (typeId) conditions.push(eq(moves.typeId, typeId));
+      if (ids) conditions.push(inArray(moves.id, ids.split(",").map(Number)));
       return app.db
         .select()
         .from(moves)
         .where(conditions.length ? and(...conditions) : undefined)
         .orderBy(asc(moves.name))
         .limit(limit);
+    },
+  );
+
+  // --- Learnset cache ---
+  const learnsetCache = new Map<number, { moves: number[]; ts: number }>();
+  const LEARNSET_TTL = 3_600_000; // 1 hour
+  const POKEAPI_BASE = "https://pokeapi.co/api/v2";
+
+  r.get(
+    "/species/:id/learnset",
+    { schema: { params: idParamSchema } },
+    async (request, reply) => {
+      const speciesId = request.params.id;
+      const cached = learnsetCache.get(speciesId);
+      if (cached && Date.now() - cached.ts < LEARNSET_TTL) {
+        return { moves: cached.moves };
+      }
+
+      const sp = await app.db.query.species.findFirst({
+        where: (s, { eq }) => eq(s.id, speciesId),
+        columns: { name: true },
+      });
+      if (!sp) throw errors.notFound("Species not found");
+
+      try {
+        // Fetch learnset from PokeAPI
+        const res = await fetch(`${POKEAPI_BASE}/pokemon/${sp.name}`);
+        if (!res.ok) throw new Error(`PokeAPI ${res.status}`);
+        const data = (await res.json()) as {
+          moves: { move: { name: string; url: string } }[];
+        };
+
+        // Load all our moves and match by name in JS (faster than complex SQL IN)
+        const allMoves = await app.db.select().from(moves);
+        const nameToId = new Map(allMoves.map((m) => [m.name, m.id]));
+        const moveIds = data.moves
+          .map((m) => nameToId.get(m.move.name))
+          .filter((id): id is number => id != null);
+
+        learnsetCache.set(speciesId, { moves: moveIds, ts: Date.now() });
+        return { moves: moveIds };
+      } catch (err) {
+        app.log.warn({ err, species: sp.name }, "learnset fetch failed");
+        return { moves: [] };
+      }
     },
   );
 }

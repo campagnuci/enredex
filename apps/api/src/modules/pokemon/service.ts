@@ -113,6 +113,7 @@ async function resolvePlacement(
   homePlan: Pokemon["homePlan"] | null;
   boxId: string | null;
   slot: number | null;
+  swapWithId: string | null;
 }> {
   const location = merged.location;
 
@@ -124,7 +125,7 @@ async function resolvePlacement(
   }
 
   if (location !== "home") {
-    return { location, homePlan: null, boxId: null, slot: null };
+    return { location, homePlan: null, boxId: null, slot: null, swapWithId: null };
   }
 
   const { homePlan, boxId, slot } = merged;
@@ -148,9 +149,8 @@ async function resolvePlacement(
       ),
     columns: { id: true },
   });
-  if (occupant) throw errors.conflict("That box slot is already occupied");
 
-  return { location, homePlan, boxId, slot };
+  return { location, homePlan, boxId, slot, swapWithId: occupant?.id ?? null };
 }
 
 // ---------------------------------------------------------------------------
@@ -313,6 +313,7 @@ export async function createPokemon(
     slot: input.slot,
     heldItemId: input.heldItemId,
   });
+  const { swapWithId: _, ...pl } = placement;
 
   const id = await db.transaction(async (tx) => {
     const [created] = await tx
@@ -332,7 +333,7 @@ export async function createPokemon(
         level: input.level ?? 1,
         ...otFields,
         originGameId: input.originGameId ?? null,
-        ...placement,
+        ...pl,
         metLevel: input.metLevel ?? null,
         metLocation: input.metLocation ?? null,
         metDate: input.metDate ?? null,
@@ -442,6 +443,25 @@ export async function updatePokemon(
 
   await db.transaction(async (tx) => {
     const { moves, ...scalarPatch } = patch;
+    const { swapWithId: _sw, ...pl } = placement;
+
+    // If swapping, clear both pokemons' slots first so the unique index doesn't conflict
+    if (_sw) {
+      await tx
+        .update(pokemon)
+        .set({ slot: null, boxId: null })
+        .where(eq(pokemon.id, id));
+      await tx
+        .update(pokemon)
+        .set({ slot: null, boxId: null })
+        .where(eq(pokemon.id, _sw));
+      // Now reassign: occupant → current slot, current → target slot
+      await tx
+        .update(pokemon)
+        .set({ slot: current.slot, boxId: current.boxId, updatedAt: new Date() })
+        .where(eq(pokemon.id, _sw));
+    }
+
     await tx
       .update(pokemon)
       .set({
@@ -449,7 +469,7 @@ export async function updatePokemon(
         speciesId,
         formId,
         ...otFields,
-        ...placement,
+        ...pl,
         updatedAt: new Date(),
       })
       .where(eq(pokemon.id, id));

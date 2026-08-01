@@ -60,7 +60,7 @@ function Dashboard() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="h-full overflow-auto p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Dashboard</h1>
         <Link to="/pokemon/new">
