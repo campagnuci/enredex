@@ -2,12 +2,11 @@ import { createFileRoute, Link, Outlet, useMatches, useRouter } from "@tanstack/
 import { api } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SpriteImage } from "@/components/sprite-image";
-import { capitalize } from "@/lib/strings";
+import { capitalize, typeBadgeUrl } from "@/lib/strings";
 import { ArrowLeft, Mars, Minus, Pencil, Sparkles, Star, Trash2, Venus } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -32,15 +31,24 @@ function PokemonDetail() {
     queryFn: () => api<any>(`/api/pokemon/${pokemonId}`),
   });
 
+  // Fetch types for this species (from learnset endpoint which now returns types too)
+  const { data: speciesInfo } = useQuery({
+    queryKey: ["reference", "pokemon-info", p?.speciesId],
+    queryFn: () => api<{ types: { id: number; name: string }[] }>(`/api/reference/species/${p.speciesId}/learnset`),
+    enabled: !!p?.speciesId,
+    staleTime: 5 * 60_000,
+    select: (data) => data.types,
+  });
+
   const toggleFavorite = useMutation({
     mutationFn: (val: boolean) =>
       api(`/api/pokemon/${pokemonId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ isFavorite: val }) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["pokemon"] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["pokemon"] }); qc.invalidateQueries({ queryKey: ["box"] }); },
   });
   const toggleShiny = useMutation({
     mutationFn: (val: boolean) =>
       api(`/api/pokemon/${pokemonId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ isShiny: val }) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["pokemon"] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["pokemon"] }); qc.invalidateQueries({ queryKey: ["box"] }); },
   });
 
   // If a child route (edit) is active, yield to it
@@ -52,6 +60,7 @@ function PokemonDetail() {
   const handleDelete = async () => {
     if (!confirm("Delete this Pokémon?")) return;
     await api(`/api/pokemon/${pokemonId}`, { method: "DELETE" });
+    qc.invalidateQueries({ queryKey: ["box"] });
     goBack();
   };
 
@@ -109,6 +118,11 @@ function PokemonDetail() {
               {p.form && <span> · {p.form.name}</span>}
               {" · "}Lv.{p.level}
               {" · "}{p.gender === "female" ? <Venus className="inline h-4 w-4 text-pink-400" /> : p.gender === "male" ? <Mars className="inline h-4 w-4 text-blue-400" /> : <Minus className="inline h-4 w-4 text-muted-foreground" />}
+            </p>
+            <p className="text-muted-foreground flex gap-2">
+              {speciesInfo?.map((t: any) => (
+                <img key={t.id} src={typeBadgeUrl(t.id)} alt={t.name} className="inline h-5 w-auto" title={capitalize(t.name)} />
+              ))}
             </p>
           </div>
 

@@ -20,7 +20,8 @@ import { paginationQuery } from "../../lib/zod-helpers.js";
 
 const searchQuerySchema = z.object({
   search: z.string().trim().max(100).optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(50),
+  ids: z.string().trim().optional(),
+  limit: z.coerce.number().int().min(1).max(1000).default(50),
 });
 
 const speciesQuerySchema = z.object({
@@ -133,11 +134,14 @@ export async function referenceRoutes(app: FastifyInstance) {
     "/abilities",
     { schema: { querystring: searchQuerySchema } },
     async (request) => {
-      const { search, limit } = request.query;
+      const { search, limit, ids } = request.query;
+      const conditions: SQL[] = [];
+      if (search) conditions.push(ilike(abilities.name, `%${search}%`));
+      if (ids) conditions.push(inArray(abilities.id, ids.split(",").map(Number)));
       return app.db
         .select()
         .from(abilities)
-        .where(search ? ilike(abilities.name, `%${search}%`) : undefined)
+        .where(conditions.length ? and(...conditions) : undefined)
         .orderBy(asc(abilities.name))
         .limit(limit);
     },
@@ -176,8 +180,8 @@ export async function referenceRoutes(app: FastifyInstance) {
   );
 
   // --- Learnset cache ---
-  const learnsetCache = new Map<number, { moves: number[]; ts: number }>();
-  const LEARNSET_TTL = 3_600_000; // 1 hour
+  const learnsetCache = new Map<number, { moves: number[]; types: { id: number; name: string }[]; abilities: string[]; ts: number }>();
+  const LEARNSET_TTL = 3_600_000;
   const POKEAPI_BASE = "https://pokeapi.co/api/v2";
 
   r.get(
@@ -187,7 +191,7 @@ export async function referenceRoutes(app: FastifyInstance) {
       const speciesId = request.params.id;
       const cached = learnsetCache.get(speciesId);
       if (cached && Date.now() - cached.ts < LEARNSET_TTL) {
-        return { moves: cached.moves };
+        return { moves: cached.moves, types: cached.types, abilities: cached.abilities };
       }
 
       const sp = await app.db.query.species.findFirst({
@@ -202,20 +206,35 @@ export async function referenceRoutes(app: FastifyInstance) {
         if (!res.ok) throw new Error(`PokeAPI ${res.status}`);
         const data = (await res.json()) as {
           moves: { move: { name: string; url: string } }[];
+          types: { slot: number; type: { name: string; url: string } }[];
+          abilities: { ability: { name: string; url: string }; is_hidden: boolean; slot: number }[];
         };
 
-        // Load all our moves and match by name in JS (faster than complex SQL IN)
+        // Moves
         const allMoves = await app.db.select().from(moves);
         const nameToId = new Map(allMoves.map((m) => [m.name, m.id]));
         const moveIds = data.moves
           .map((m) => nameToId.get(m.move.name))
           .filter((id): id is number => id != null);
 
-        learnsetCache.set(speciesId, { moves: moveIds, ts: Date.now() });
-        return { moves: moveIds };
+        // Types — extract PokeAPI type IDs for sprite URLs
+        const typeIds = data.types.map((t) => {
+          const id = Number(t.type.url.match(/\/(\d+)\/?$/)![1]);
+          return { id, name: t.type.name };
+        });
+
+        // Abilities — resolve PokeAPI names to our DB IDs
+        const allAbilities = await app.db.select().from(abilities);
+        const abilityNameToId = new Map(allAbilities.map((a) => [a.name, a.id]));
+        const abilityIds = data.abilities
+          .map((a) => abilityNameToId.get(a.ability.name))
+          .filter((id): id is number => id != null);
+
+        learnsetCache.set(speciesId, { moves: moveIds, types: typeIds, abilities: abilityIds as any, ts: Date.now() });
+        return { moves: moveIds, types: typeIds, abilities: abilityIds };
       } catch (err) {
         app.log.warn({ err, species: sp.name }, "learnset fetch failed");
-        return { moves: [] };
+        return { moves: [], types: [], abilities: [] };
       }
     },
   );

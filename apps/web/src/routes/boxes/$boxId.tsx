@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SpriteImage } from "@/components/sprite-image";
 import { capitalize } from "@/lib/strings";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Star, Sparkles } from "lucide-react";
 import {
   DndContext,
   PointerSensor,
@@ -50,7 +50,7 @@ function PokemonCard({
       onClick={() => navigate({ to: "/pokemon/$pokemonId", params: { pokemonId: pokemon.id } })}
       className={`${isDragging ? "opacity-40" : ""}`}
     >
-      <Card className="flex aspect-square cursor-grab flex-col items-center justify-center gap-1 p-1.5 transition-colors hover:bg-accent select-none">
+      <Card className="flex aspect-square cursor-grab flex-col items-center justify-center p-1.5 transition-colors hover:bg-accent select-none relative">
         <div className="flex h-24 w-24 items-center justify-center">
           {pokemon.iconUrl ? (
             <SpriteImage src={pokemon.iconUrl!} alt="" className="h-22 w-22 object-contain" loading="lazy" />
@@ -58,11 +58,12 @@ function PokemonCard({
             <span className="text-xs text-muted-foreground">?</span>
           )}
         </div>
-        <div className="w-full truncate text-center text-[10px] leading-tight">
-          <span className={pokemon.isShiny ? "text-purple-400" : ""}>
+        <div className="absolute flex items-center justify-between gap-2 bottom-1">
+          <span className="text-sm">
             {pokemon.nickname ?? capitalize(pokemon.speciesName)}
           </span>
-          {pokemon.isFavorite && <span className="text-amber-400">★</span>}
+          {pokemon.isShiny && <Sparkles className="text-purple-400" size={14} fill="currentColor" />}
+          {pokemon.isFavorite && <Star className="text-amber-400" size={14} fill="currentColor" />}
         </div>
       </Card>
     </div>

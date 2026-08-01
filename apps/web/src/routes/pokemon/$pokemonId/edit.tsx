@@ -11,7 +11,7 @@ import { GameSelect } from "@/components/game-select";
 import { BoxSelect } from "@/components/box-select";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { SpriteImage } from "@/components/sprite-image";
-import { capitalize } from "@/lib/strings";
+import { capitalize, typeIconUrl } from "@/lib/strings";
 import { ArrowLeft, Mars, Minus, Save, Sparkles, Star, Venus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -66,6 +66,9 @@ function EditPokemon() {
   const [slot, setSlot] = useState("");
   const [notes, setNotes] = useState("");
   const [tags, setTags] = useState<string[]>([]);
+  const [natureId, setNatureId] = useState("");
+  const [abilityId, setAbilityId] = useState("");
+  const [isHiddenAbility, setIsHiddenAbility] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -86,12 +89,15 @@ function EditPokemon() {
     setSlot(p.slot ? String(p.slot) : "");
     setNotes(p.notes ?? "");
     setTags(p.tags ?? []);
+    setNatureId(p.natureId ? String(p.natureId) : "");
+    setAbilityId(p.abilityId ? String(p.abilityId) : "");
+    setIsHiddenAbility(p.isHiddenAbility ?? false);
   }, [p]);
 
   // --- Learnset → moves ---
   const { data: learnset } = useQuery({
     queryKey: ["reference", "learnset", Number(speciesId)],
-    queryFn: () => api<{ moves: number[] }>(`/api/reference/species/${speciesId}/learnset`),
+    queryFn: () => api<{ moves: number[]; types: { id: number; name: string }[]; abilities: number[] }>(`/api/reference/species/${speciesId}/learnset`),
     enabled: !!speciesId,
     staleTime: 60_000,
   });
@@ -120,6 +126,14 @@ function EditPokemon() {
       .filter((f) => !f.isDefault)
       .map((f) => ({ value: String(f.id), label: capitalize(f.name) }));
   }, [speciesForms]);
+
+  const { data: bootstrap } = useQuery({ queryKey: ["bootstrap"], queryFn: () => api<any>("/api/reference/bootstrap"), staleTime: 5 * 60_000 });
+  const { data: allAbilities } = useQuery({ queryKey: ["reference", "abilities", "all"], queryFn: () => api<any[]>("/api/reference/abilities?limit=500"), staleTime: 5 * 60_000, enabled: !learnset?.abilities?.length });
+  const { data: learnsetAbilities } = useQuery({ queryKey: ["reference", "abilities", "byId", learnset?.abilities?.join(",") ?? ""], queryFn: () => api<any[]>(`/api/reference/abilities?ids=${learnset!.abilities.join(",")}&limit=10`), staleTime: 5 * 60_000, enabled: !!(learnset?.abilities?.length) });
+  const natureOptions = useMemo(() => (bootstrap?.natures ?? []).map((n: any) => ({ value: String(n.id), label: capitalize(n.name) })), [bootstrap]);
+  const abilityList = learnsetAbilities ?? allAbilities;
+  const abilityOptions = useMemo(() => abilityList?.map((a: any) => ({ value: String(a.id), label: capitalize(a.name) })) ?? [], [abilityList]);
+
   const availableMoves = learnsetMoves ?? (allMoves ?? []);
 
   // --- Moves slots ---
@@ -158,6 +172,9 @@ function EditPokemon() {
     body.isShiny = isShiny;
     body.isFavorite = isFavorite;
     body.location = location;
+    body.natureId = natureId ? Number(natureId) : null;
+    body.abilityId = abilityId ? Number(abilityId) : null;
+    body.isHiddenAbility = isHiddenAbility;
     body.notes = notes || null;
     body.tags = tags;
     if (location === "home") { body.homePlan = "free"; body.boxId = boxId || null; body.slot = slot ? Number(slot) : null; }
@@ -171,6 +188,7 @@ function EditPokemon() {
     try {
       await api(`/api/pokemon/${pokemonId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(buildPatch(overrides)) });
       qc.invalidateQueries({ queryKey: ["pokemon"] });
+      qc.invalidateQueries({ queryKey: ["box"] });
       setSaved(true); setTimeout(() => setSaved(false), 2000);
     } catch (err: any) { setError(err?.message ?? "Update failed"); }
     finally { setSaving(false); }
@@ -192,7 +210,7 @@ function EditPokemon() {
       {/* Identity */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Identity</CardTitle>
+          <CardTitle className="flex items-center gap-2">Identity {learnset?.types?.map((t: any) => (<img key={t.id} src={typeIconUrl(t.id)} alt={t.name} className="inline h-5 w-5" title={capitalize(t.name)} />))}</CardTitle>
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" onClick={cycleGender} title={gender}>
               {gender === "female" ? <Venus className="h-5 w-5 text-pink-400" /> : gender === "male" ? <Mars className="h-5 w-5 text-blue-400" /> : <Minus className="h-5 w-5 text-muted-foreground" />}
@@ -232,6 +250,24 @@ function EditPokemon() {
             </div>
           )}
           <div className="space-y-2"><Label>Level</Label><Input type="number" min={1} max={100} value={level} onChange={(e) => setLevel(e.target.value)} /></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Nature</Label>
+              <SearchableCombobox value={natureId} onValueChange={setNatureId} options={natureOptions} placeholder="Select nature..." emptyMessage="No natures" />
+            </div>
+            <div className="space-y-2">
+              <Label>Ability</Label>
+              <div className="flex flex-col gap-1">
+                <SearchableCombobox value={abilityId} onValueChange={setAbilityId} options={abilityOptions} placeholder="Select ability..." emptyMessage="No abilities" />
+                {abilityOptions.length > 0 && (
+                  <label className="flex items-center gap-2 text-xs">
+                    <input type="checkbox" checked={isHiddenAbility} onChange={(e) => { setIsHiddenAbility(e.target.checked); doSave({ isHiddenAbility: e.target.checked }); }} />
+                    Hidden Ability
+                  </label>
+                )}
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
